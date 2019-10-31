@@ -469,8 +469,8 @@ def update_tables(selection, a_jsonified, d_jsonified):
         d_df, d_key_count = get_scp_field(d_df, selection)
         
         # Show the user the first five rows of selected columns of the df
-        a_view_df = a_df[["#TYPE", "FROM ENGINE", "TO ENGINE", "MISC5"]].iloc[:5]
-        d_view_df = d_df[["#TYPE", "FROM ENGINE", "TO ENGINE", "MISC5"]].iloc[:5]
+        a_view_df = a_df[["#TYPE", "FROM ENGINE", "EQUATION", "MISC5"]].iloc[:5]
+        d_view_df = d_df[["#TYPE", "FROM ENGINE", "EQUATION", "MISC5"]].iloc[:5]
 
         a_view_children = parse_contents_table(a_view_df, "Analogs Preview")
         d_view_children = parse_contents_table(d_view_df, "Digitals Preview")
