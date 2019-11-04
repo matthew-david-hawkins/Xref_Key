@@ -115,53 +115,60 @@ def strip_scp(my_string):
     # Find everything left off the semicolon
     scolon = my_string.find(":")
 
-    scolon_left = my_string[0:scolon]
+    # If no semicolon is found, return a blank
+    if scolon == -1:
 
-    # Reverse the string to perform find in backward direction
-    str_reversed =''.join(reversed(scolon_left))
-
-    # Define special characters to search for
-    characters = ['(', ')', " ", '+', "-","*","/","^", "'"]
-
-    # Find the first instance of a special character
-    finds = []
-    for character in characters:
-
-        finds.append(str_reversed.find(character))
-
-    # Remove -1 from list
-    finds = list(filter(lambda a: a != -1, finds))
-
-    # Get everything up to the first special character
-    if finds:
-        mystr = str_reversed[0:min(finds)]
+        return ""
+    
     else:
-        mystr = str_reversed
 
-    # Reverse to return to normal order
-    compound =''.join(reversed(mystr))
+        scolon_left = my_string[0:scolon]
+
+        # Reverse the string to perform find in backward direction
+        str_reversed =''.join(reversed(scolon_left))
+
+        # Define special characters to search for
+        characters = ['(', ')', " ", '+', "-","*","/","^", "'"]
+
+        # Find the first instance of a special character
+        finds = []
+        for character in characters:
+
+            finds.append(str_reversed.find(character))
+
+        # Remove -1 from list
+        finds = list(filter(lambda a: a != -1, finds))
+
+        # Get everything up to the first special character
+        if finds:
+            mystr = str_reversed[0:min(finds)]
+        else:
+            mystr = str_reversed
+
+        # Reverse to return to normal order
+        compound =''.join(reversed(mystr))
 
 
-    # Find everything right of the semicolon
-    scolon_right = my_string[scolon:]
+        # Find everything right of the semicolon
+        scolon_right = my_string[scolon:]
 
-    # Find the first instance of a special character
-    finds = []
-    for character in characters:
+        # Find the first instance of a special character
+        finds = []
+        for character in characters:
 
-        finds.append(scolon_right.find(character))
+            finds.append(scolon_right.find(character))
 
-    # Remove -1 from list
-    finds = list(filter(lambda a: a != -1, finds))
+        # Remove -1 from list
+        finds = list(filter(lambda a: a != -1, finds))
 
-    if finds:
-        block_param = scolon_right[:min(finds)]
-    else:
-        block_param = scolon_right
+        if finds:
+            block_param = scolon_right[:min(finds)]
+        else:
+            block_param = scolon_right
 
-    scp_key = compound + block_param
+        scp_key = compound + block_param
 
-    return scp_key
+        return scp_key
 
 # ------------/ Create dataframe from uploaded file /--------------
 def parse_contents(contents, filename, date):
@@ -170,8 +177,15 @@ def parse_contents(contents, filename, date):
     decoded = base64.b64decode(content_string)
     try:
         if 'csv' in filename:
-            # Assume that the user uploaded a CSV file
-            df = pd.read_csv( io.StringIO(decoded.decode('utf-8')), index_col=None, skiprows=1)
+            
+            try:
+                # Assume that the user uploaded a CSV file with utf-8 encoding
+                df = pd.read_csv( io.StringIO(decoded.decode('utf-8')), index_col=None, skiprows=1)
+
+            except:
+                # if read is unsuccessul, try ISO encoding
+                df = pd.read_csv( io.StringIO(decoded.decode('ISO-8859-1')), index_col=None, skiprows=1)
+
         elif 'xls' in filename:
             # Assume that the user uploaded an excel file
             df = pd.read_excel(io.BytesIO(decoded))
@@ -432,19 +446,24 @@ def update_output(contents, filename, last_modified):
 
         filename = "Example_Xref.csv"
 
-    engine_list = get_engines(upload_df)
+    try:
+        engine_list = get_engines(upload_df)
 
-    options=[{'label': engine, 'value': engine} for engine in engine_list]
+        options=[{'label': engine, 'value': engine} for engine in engine_list]
 
-    # Split user df to analogs and digitals
-    a_df, d_df = split_xref(upload_df)
+        # Split user df to analogs and digitals
+        a_df, d_df = split_xref(upload_df)
+    
+    except Exception as e:
+        print(e)
+        return None,None,None,[],[],[html.Br(), html.H6("There Was An Error Processing The File!"), html.Br()]
     
     return (upload_df.to_json(date_format='iso', orient='split'),
-            a_df.to_json(date_format='iso', orient='split'),
-            d_df.to_json(date_format='iso', orient='split'),
-            options,
-            values,
-            html.H6(filename))
+        a_df.to_json(date_format='iso', orient='split'),
+        d_df.to_json(date_format='iso', orient='split'),
+        options,
+        values,
+        html.H6(filename))
             
 
 #-------/ Engine Names Selected / Data Uploaded / -----------------
@@ -469,8 +488,9 @@ def update_tables(selection, a_jsonified, d_jsonified):
         d_df, d_key_count = get_scp_field(d_df, selection)
         
         # Show the user the first five rows of selected columns of the df
-        a_view_df = a_df[["#TYPE", "FROM ENGINE", "EQUATION", "MISC5"]].iloc[:5]
-        d_view_df = d_df[["#TYPE", "FROM ENGINE", "EQUATION", "MISC5"]].iloc[:5]
+        a_view_df = a_df.loc[a_df["MISC5"] != ""][["#TYPE", "TO ENGINE", "TO SYMBOL", "FROM ENGINE", "FROM SYMBOL", "EQUATION", "MISC5"]].iloc[:5]
+        d_view_df = d_df.loc[d_df["MISC5"] != ""][["#TYPE", "TO ENGINE", "TO SYMBOL", "FROM ENGINE", "FROM SYMBOL", "EQUATION", "MISC5"]].iloc[:5]
+        # d_view_df = d_df[["#TYPE", "FROM ENGINE", "EQUATION", "MISC5"]].iloc[:5]
 
         a_view_children = parse_contents_table(a_view_df, "Analogs Preview")
         d_view_children = parse_contents_table(d_view_df, "Digitals Preview")
@@ -501,9 +521,10 @@ def toggle_modal(close_clicks, download_clicks, open_click, is_open):
     return False
 
 
-#-------/ Add feedback to feedback list / -----------------
+#-------/ Add feedback to feedback list / Clear Input / -----------------
 @app.callback(
-    Output("placeholder", "children"),
+    [Output("placeholder", "children"),
+    Output("user-comment", "value")],
     [Input("modal", "is_open")],
     [State("user-comment", "value")]
 )
@@ -517,9 +538,9 @@ def update_comments(n_clicks, string):
         comments_df = pd.DataFrame(data = {"comment" : comment_list})
         comments_df.to_csv("Resources/comments.csv")
 
-        return comments_df.to_json(date_format='iso', orient='split')
+        return comments_df.to_json(date_format='iso', orient='split'),''
     
-    return ""
+    return "",''
 
 
 if __name__=='__main__':
