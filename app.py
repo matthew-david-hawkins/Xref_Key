@@ -12,6 +12,7 @@ import dash_table
 import pandas as pd
 import plotly.graph_objs as go
 import flask
+import pymongo
 import numpy as np
 
 # ---------------------------------------
@@ -253,6 +254,17 @@ app = dash.Dash(__name__,
 
 app.title = "Dynsim Xref Tool"
 
+deployment_atlas = "mongodb+srv://thrum-rw:Skipshot1@thrumcluster-f2hkj.mongodb.net/test?retryWrites=true&w=majority"
+testing = "mongodb://localhost:27017/myDatabase"
+
+client = pymongo.MongoClient(deployment_atlas)
+
+# Define the database name to use
+db = client.xref_key
+
+# Define the collection to use
+collection = db['events']
+
 colors = {
     'background': "#111111",
     'text': '#7FDBFF'
@@ -404,9 +416,35 @@ app.layout = html.Div(children=[
         # Hidden div inside the app that stores the improved analog crossref
         html.Div(id='downloadable-csv', style={'display': 'none'}),
 
-        # Hidden div inside the app that stores comments
-        html.Div(id='placeholder', style={'display': 'none'})
+        # Hidden div that stores the session start time
+        html.Div(id='session-start', style={'display': 'none'}),
 
+        # Hidden div that stores the uploaded file name
+        html.Div(id='upload-name', style={'display': 'none'}),
+
+        # Hidden div that stores the uploaded file length
+        html.Div(id='upload-length', style={'display': 'none'}),
+
+        # Hidden div that stores the uploaded file width
+        html.Div(id='upload-width', style={'display': 'none'}),
+
+        # Hidden div that stores the download press time
+        html.Div(id='download-time', style={'display': 'none'}),
+
+        # Hidden div that stores the number of inliers at download
+        html.Div(id='download-engines', style={'display': 'none'}),
+
+        # Hidden div that stores the number of outliers at download
+        html.Div(id='download-keys', style={'display': 'none'}),
+
+        # Hidden div that stores the last comment made by the user
+        html.Div(id='last-comment', style={'display': 'none'}),
+
+        # Hidden div inside the app that stores comments
+        html.Div(id='placeholder', style={'display': 'none'}),
+
+        # Hidden div for callback placeholder
+        html.Div(id='placeholder2', style={'display': 'none'})
 
    ], className='container')
 
@@ -416,6 +454,17 @@ app.layout = html.Div(children=[
 # -----------/ Callbacks /--------------
 # ---------------------------------------
 
+#-------/ Intial Callback Records Session Start / -----------------
+@app.callback(Output('session-start', 'children'),
+              [Input('placeholder2', 'children')]
+              )
+def start_record(placeholder):
+
+    #set session start record as the current time
+    session_start = datetime.datetime.now()
+
+    return session_start
+
 #-------/ Data Uploaded or contraints changed / -----------------
 # display the data that the user has uploaded in a table, and store data that the user uploaded into a hidden div, and update x/y sliders settings
 @app.callback([Output('uploaded-json', 'children'),
@@ -423,7 +472,10 @@ app.layout = html.Div(children=[
                 Output('new-d-xref-csv', 'children'),
                 Output('fit-dropdown', "options"),
                 Output('fit-dropdown', "value"),
-                Output('file-title', "children")],
+                Output('file-title', "children"),
+                Output('upload-length', 'children'),
+                Output('upload-width', 'children'),
+                Output('upload-name', 'children')],
               [Input('upload-data', 'contents')],
               [State('upload-data', 'filename'),
                State('upload-data', 'last_modified')])
@@ -435,11 +487,29 @@ def update_output(contents, filename, last_modified):
         # Use the contents to create a dataframe
         upload_df = parse_contents(contents, filename, last_modified)
 
+        # store the filename for record
+        upload_name = filename
+
+        # store the length of the file uploaded for record
+        upload_length = len(upload_df)
+
+        # store the width of the file uploaded for record
+        upload_width = len(upload_df.columns)
+
         values = []
     
     # On intial page load, or failure, use example data
     else:
         upload_df = pd.read_csv('Resources/design_data.csv', index_col=None, skiprows=1)
+
+        # store the filename for record
+        upload_name = filename
+
+        # store the length of the file uploaded for record
+        upload_length = len(upload_df)
+
+        # store the width of the file uploaded for record
+        upload_width = len(upload_df.columns)
 
         # for example, load the correct engines
         values = ['ExampleSCP1', 'ExampleSCP2']
@@ -456,21 +526,38 @@ def update_output(contents, filename, last_modified):
     
     except Exception as e:
         print(e)
-        return None,None,None,[],[],[html.Br(), html.H6("There Was An Error Processing The File!"), html.Br()]
+        return None,None,None,[],[],[html.Br(), html.H6("There Was An Error Processing The File!"), html.Br()], dash.no_update, dash.no_update, dash.no_update
     
-    return (upload_df.to_json(date_format='iso', orient='split'),
+    if contents is not None:
+    
+        return (upload_df.to_json(date_format='iso', orient='split'),
+            a_df.to_json(date_format='iso', orient='split'),
+            d_df.to_json(date_format='iso', orient='split'),
+            options,
+            values,
+            html.H6(filename),
+            upload_length,
+            upload_width,
+            upload_name)
+    
+    else:
+        return (upload_df.to_json(date_format='iso', orient='split'),
         a_df.to_json(date_format='iso', orient='split'),
         d_df.to_json(date_format='iso', orient='split'),
         options,
         values,
-        html.H6(filename))
+        html.H6(filename),
+        dash.no_update,
+        dash.no_update,
+        dash.no_update)
             
 
 #-------/ Engine Names Selected / Data Uploaded / -----------------
 @app.callback([ Output('a-xref', 'children'),
                 Output('d-xref', 'children'),
                 Output('key-count', 'children'),
-                Output('downloadable-csv', 'children')],
+                Output('downloadable-csv', 'children'),
+                Output('download-keys', 'children')],
               [Input('fit-dropdown', 'value')], 
               [State('new-a-xref-csv', 'children'),
               State('new-d-xref-csv', 'children')]
@@ -495,35 +582,43 @@ def update_tables(selection, a_jsonified, d_jsonified):
         a_view_children = parse_contents_table(a_view_df, "Analogs Preview")
         d_view_children = parse_contents_table(d_view_df, "Digitals Preview")
 
-        return a_view_children, d_view_children, html.H6(f"{str(a_key_count + d_key_count)} Keys Generated"), "SIM4ME\n" + a_df.to_csv(index=False) + d_df.to_csv(index=False)
+        return a_view_children, d_view_children, html.H6(f"{str(a_key_count + d_key_count)} Keys Generated"), "SIM4ME\n" + a_df.to_csv(index=False) + d_df.to_csv(index=False), a_key_count + d_key_count
     
     else:
 
-        return "", "", "", ""
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 
 #-------/ Open feedback form / -----------------
 @app.callback(
-    Output("modal", "is_open"),
-    [Input("close", "n_clicks"), Input("download-button", "n_clicks"), Input("open", "n_clicks")],
-    [State("modal", "is_open")],
+    [Output("modal", "is_open"),
+    Output("download-engines", "children"),
+    Output("download-time", "children")],
+    [Input("close", "n_clicks"), 
+    Input("download-button", "n_clicks"), 
+    Input("open", "n_clicks")],
+    [State("modal", "is_open"),
+    State('fit-dropdown', 'value')],
 )
-def toggle_modal(close_clicks, download_clicks, open_click, is_open):
+def toggle_modal(close_clicks, download_clicks, open_click, is_open, download_engines):
     
     if download_clicks or open_click:
+
+        # On a feedback open request or download click, record the time, slider settings, and fit selection
+        feedback_time = datetime.datetime.now()
         
         if close_clicks:
 
-            return not is_open
+            return not is_open, dash.no_update, dash.no_update
 
-        return not is_open
+        return not is_open, download_engines, feedback_time 
 
-    return False
+    return False, dash.no_update, dash.no_update
 
 
 #-------/ Add feedback to feedback list / Clear Input / -----------------
 @app.callback(
-    [Output("placeholder", "children"),
+    [Output("last-comment", "children"),
     Output("user-comment", "value")],
     [Input("modal", "is_open")],
     [State("user-comment", "value")]
@@ -532,15 +627,38 @@ def update_comments(n_clicks, string):
 
     if string:
 
-        comments_df = pd.read_csv("Resources/comments.csv")
-        comment_list = comments_df["comment"].to_list()
-        comment_list.append(string)
-        comments_df = pd.DataFrame(data = {"comment" : comment_list})
-        comments_df.to_csv("Resources/comments.csv")
-
-        return comments_df.to_json(date_format='iso', orient='split'),''
+        return string,''
     
-    return "",''
+    return dash.no_update,''
+
+#-------/ Write Session Info to MongoDB/ -----------------
+@app.callback(
+    Output("placeholder", "children"),
+    [Input("session-start", "children"),
+    Input("upload-name", "children"),
+    Input("download-time", "children"),
+    Input("last-comment", "children")],
+    [State("upload-length", "children"),
+    State("upload-width", "children"),
+    State("download-engines", "children"),
+    State("download-keys", "children")]
+)
+def update_record(session_start, upload_name, download_time, last_comment, upload_length, upload_width, download_engines, download_keys):
+
+    if session_start is not None:
+
+        event_dictionary = {
+            'session_start':session_start, 
+            'upload_name':upload_name, 
+            'upload_length':upload_length, 
+            'upload_width':upload_width, 
+            'download_time':download_time, 
+            'download-engines':download_engines, 
+            'download_keys':download_keys, 
+            'last_comment':last_comment
+            }
+        # Insert event dictionary into the database
+        collection.insert_one(event_dictionary)
 
 
 if __name__=='__main__':
